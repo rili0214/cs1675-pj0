@@ -3,6 +3,9 @@
 pub mod app;
 pub mod chunked_tcp_stream;
 pub mod closed_loop_client;
+pub mod io_uring;
+pub mod io_uring_server;
+pub mod io_vec_server;
 pub mod open_loop_client;
 pub mod protocol;
 pub mod serialize;
