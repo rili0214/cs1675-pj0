@@ -1,20 +1,44 @@
-use crate::{app::Work, serialize::LatencyRecord};
+use crate::{
+    app::Work,
+    chunked_tcp_stream::ChunkedTcpStream,
+    protocol::work_request::ClientWorkPacketConn,
+    protocol::work_response::ServerWorkPacketConn,
+    serialize::{ClientWorkPacket, LatencyRecord},
+    get_current_time_micros,
+};
+
 use std::{
-    net::SocketAddrV4,
+    net::{SocketAddrV4, TcpStream},
     path::PathBuf,
     thread::{self, JoinHandle},
     time::Duration,
 };
 
-fn client_worker(server_addr: SocketAddrV4, runtime: Duration, work: Work) -> Vec<LatencyRecord> {
-    // TODO: Students will have to write this code.
-    // NOTE: It might be helpful to look at protocol.rs first. You'll probably
-    // be implementing that alongside this function.
-    //
-    // This function is a closed loop client sending a request, then waiting for
-    // a response. It should return a vector of latency records.
+use csv::Writer;
+use minstant::Instant;
 
-    unimplemented!()
+fn client_worker(server_addr: SocketAddrV4, runtime: Duration, work: Work) -> Vec<LatencyRecord> {
+    let stream = TcpStream::connect(server_addr).unwrap();
+    let clone_stream = stream.try_clone().unwrap();
+    let mut client_conn = ClientWorkPacketConn::new(ChunkedTcpStream::new(clone_stream));
+    let mut server_conn = ServerWorkPacketConn::new(ChunkedTcpStream::new(stream));
+
+    let mut latencies: Vec<LatencyRecord> = Vec::new();
+    let mut id: u64 = 0;
+    let start = Instant::now();
+
+    while start.elapsed() < runtime {
+        let work_packet = ClientWorkPacket::new(id, work);
+        client_conn.send_work_msg(work_packet).unwrap();
+
+        let msg = server_conn.recv_work_msg().unwrap();
+        let lat = msg.calculate_latency(get_current_time_micros()).unwrap();
+        latencies.push(lat);
+
+        id += 1;
+    }
+
+    latencies
 }
 
 pub fn init_client(
@@ -43,9 +67,19 @@ pub fn run(
         request_latencies.push(thread_latencies);
     }
 
-    // TODO: Output your request latencies to make your graph. You can calculate
-    // your graph data here, or output raw data and calculate them externally.
-    // You SHOULD write this output to outdir.
+    let path = outdir.join("closed_loop_latencies.csv");
+    let mut w = Writer::from_path(&path).unwrap();
+    w.write_record(&["idx", "send_us", "recv_us", "server_proc_us", "latency_us"]).unwrap();
 
-    unimplemented!()
+    for thread_recs in request_latencies {
+        for (i, rec) in thread_recs.iter().enumerate() {
+            w.write_record(&[
+                i.to_string(),
+                rec.send_timestamp.to_string(), 
+                rec.recv_timestamp.to_string(), 
+                rec.server_processing_time.to_string(), 
+                rec.latency.to_string()]).unwrap();
+        }
+    }
+    w.flush().unwrap();
 }
