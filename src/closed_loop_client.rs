@@ -14,10 +14,13 @@ use std::{
     time::Duration,
 };
 
+use csv::Writer;
+use minstant::Instant;
+
 fn client_worker(server_addr: SocketAddrV4, runtime: Duration, work: Work) -> Vec<LatencyRecord> {
     let stream = TcpStream::connect(server_addr).unwrap();
-    let sender = stream.try_clone().unwrap();
-    let mut client_conn = ClientWorkPacketConn::new(ChunkedTcpStream::new(sender));
+    let clone_stream = stream.try_clone().unwrap();
+    let mut client_conn = ClientWorkPacketConn::new(ChunkedTcpStream::new(clone_stream));
     let mut server_conn = ServerWorkPacketConn::new(ChunkedTcpStream::new(stream));
 
     let mut latencies: Vec<LatencyRecord> = Vec::new();
@@ -29,10 +32,9 @@ fn client_worker(server_addr: SocketAddrV4, runtime: Duration, work: Work) -> Ve
         client_conn.send_work_msg(work_packet).unwrap();
 
         let msg = server_conn.recv_work_msg().unwrap();
-        if let Some(lat) = msg.calculate_latency(get_current_time_micros()) {
-            latencies.push(lat);
-        }
-        
+        let lat = msg.calculate_latency(get_current_time_micros()).unwrap();
+        latencies.push(lat);
+
         id += 1;
     }
 
@@ -67,11 +69,16 @@ pub fn run(
 
     let path = outdir.join("closed_loop_latencies.csv");
     let mut w = Writer::from_path(&path).unwrap();
-    w.write_record(&["latency_us"]).unwrap();
+    w.write_record(&["idx", "send_us", "recv_us", "server_proc_us", "latency_us"]).unwrap();
 
     for thread_recs in request_latencies {
-        for rec in thread_recs {
-            w.write_record(&[rec.latency.to_string()]).unwrap();
+        for (i, rec) in thread_recs.iter().enumerate() {
+            w.write_record(&[
+                i.to_string(),
+                rec.send_timestamp.to_string(), 
+                rec.recv_timestamp.to_string(), 
+                rec.server_processing_time.to_string(), 
+                rec.latency.to_string()]).unwrap();
         }
     }
     w.flush().unwrap();
