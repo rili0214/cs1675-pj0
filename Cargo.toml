@@ -17,6 +17,7 @@ anyhow = "1"
 minstant = "0.1.7"
 env_logger = "0.11.6"
 log = "0.4.25"
+csv = "1"
 
 [profile.release]
 debug = true
