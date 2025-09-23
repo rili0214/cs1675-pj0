@@ -1,7 +1,7 @@
 pub use crate::chunked_tcp_stream::MSG_SIZE_BYTES;
 use crate::{
     chunked_tcp_stream::ChunkedTcpStream,
-    serialize::{ClientWorkPacket, ServerWorkPacket},
+    serialize::{ClientWorkPacket, ServerWorkPacket, MessageTrait},
 };
 
 pub mod work_request {
@@ -18,20 +18,24 @@ pub mod work_request {
             &mut self,
             work_packet: ClientWorkPacket,
         ) -> Result<(), anyhow::Error> {
-            // TODO: Students should implement this method.
-            // serialize.rs contains how ClientWorkPacket is serialized. The
-            // resulting bytes are variable length but guaranteed to be <
-            // MSG_SIZE_BYTES so students should account for this when sending a
-            // ClientWorkPacket.
-		unimplemented!()
+            let mut msg = [0u8; MSG_SIZE_BYTES];
+            let len = work_packet.to_bytes(&mut msg[4..])? as usize;
+            msg[0..4].copy_from_slice(&(len as u32).to_be_bytes());
+            self.stream.send_msg_chunk(&msg)?;
+            Ok(())
         }
 
         pub fn recv_work_msg(&mut self) -> Result<ClientWorkPacket, anyhow::Error> {
-            // TODO: Students should implement this method
-		unimplemented!()
+            let mut msg = [0u8; MSG_SIZE_BYTES];
+            self.stream.recv_msg_chunk(&mut msg)?;
+            let len = u32::from_be_bytes(msg[0..4].try_into().unwrap()) as usize;
+            let work_packet = ClientWorkPacket::from_bytes(&msg[4..4 + len])?;
+            Ok(work_packet)
         }
 
-        // TODO: Students can implement their own methods
+        pub fn new(stream: ChunkedTcpStream) -> Self {
+            Self { stream }
+        }
     }
 
     // TODO: Students can add helper functions here.
@@ -47,23 +51,24 @@ pub mod work_response {
 
     impl ServerWorkPacketConn {
         pub fn send_work_msg(&mut self, packet: ServerWorkPacket) -> Result<(), anyhow::Error> {
-            // TODO: Students should implement this method.
-            // serialize.rs contains how ServerWorkPacket is serialized. The
-            // resulting bytes are variable length and can be larger than
-            // MSG_SIZE_BYTES so students should account for this when sending
-            // and ServerWorkPacket.
-            //
-            // NOTE: for Project-0. We can assume that ServerWorkPacket will
-            // always be < MSG_SIZE_BYTES. This will change in the next projects
-		unimplemented!()
+            let mut msg = [0u8; MSG_SIZE_BYTES];
+            let len = packet.to_bytes(&mut msg[4..])? as usize;
+            msg[0..4].copy_from_slice(&(len as u32).to_be_bytes());
+            self.stream.send_msg_chunk(&msg)?;
+            Ok(())
         }
 
         pub fn recv_work_msg(&mut self) -> Result<ServerWorkPacket, anyhow::Error> {
-            // TODO: Students should implement this method
-		unimplemented!()
+            let mut msg = [0u8; MSG_SIZE_BYTES];
+            self.stream.recv_msg_chunk(&mut msg)?;
+            let len = u32::from_be_bytes(msg[0..4].try_into().unwrap()) as usize;
+            let work_packet = ServerWorkPacket::from_bytes(&msg[4..4 + len])?;
+            Ok(work_packet)
         }
 
-        // TODO: Students can implement their own methods
+        pub fn new(stream: ChunkedTcpStream) -> Self {
+            Self { stream }
+        }
     }
 
     // TODO: Students can add helper functions here.
