@@ -1,5 +1,12 @@
-use crate::serialize::LatencyRecord;
-use minstant::Instant;
+use crate::{
+    app::Work,
+    chunked_tcp_stream::ChunkedTcpStream,
+    protocol::work_request::ClientWorkPacketConn,
+    protocol::work_response::ServerWorkPacketConn,
+    serialize::{ClientWorkPacket, LatencyRecord},
+    get_current_time_micros,
+};
+
 use std::{
     net::{SocketAddrV4, TcpStream},
     path::PathBuf,
@@ -11,7 +18,8 @@ use std::{
     time::Duration,
 };
 
-use crate::app::Work;
+use minstant::Instant;
+use csv::Writer;
 
 fn client_open_loop(
     send_stream: TcpStream,
@@ -21,35 +29,51 @@ fn client_open_loop(
     packets_sent: Arc<AtomicU64>,
     work: Work,
 ) {
-    // TODO: Students will have to write this code.
-    // NOTE: It might be helpful to look at protocol.rs first. You'll probably
-    // be implementing that alongside this function. If you've done
-    // closed_loop_client.rs, then much of the work there applies here too so we
-    // recommend working on the closed_loop_client.rs file first.
-    //
-    // This function is the send side of an open loop client. It sends data every `thread_delay`.
-    // Your report should include an evaluation of how consistently your implementation achieved a
-    // request inter-send duration of `thread_delay`
+    let mut sender = ClientWorkPacketConn::new(ChunkedTcpStream::new(send_stream));
+    let mut id: u64 = 0;
 
-    // TA NOTE: In Project 0, we use constant arrivals; in project 1, we use exponentially-distributed
-    // arrivals. The reference solution below is the project 1 solution. The project 0 solution is
-    // the same thing except without sampling the Exp random variable and instead just set
-    // `wait_duration` to `thread_delay` directly.
-    let mut rng = rand::thread_rng();
-    let lambda = 1. / thread_delay.as_micros() as f64;
-    let exp = rand_distr::Exp::new(lambda).unwrap();
-    let mut excess_duration = Duration::from_secs(0);
+    let mut next = thread_start_time;
+    while thread_start_time.elapsed() < runtime {
+        let now = Instant::now();
+        if next > now {
+            thread::sleep(next - now);
+        }
+   
+        let work_packet = ClientWorkPacket::new(id, work);
+        sender.send_work_msg(work_packet).unwrap();
 
-    unimplemented!()
+        packets_sent.fetch_add(1, Ordering::SeqCst);
+        id += 1;
+        while next <= Instant::now() {
+            next += thread_delay;
+        }
+    }
 }
 
 fn client_recv_loop(
     recv_stream: TcpStream,
     receiver_complete: Arc<AtomicBool>,
 ) -> Vec<LatencyRecord> {
-    // TODO: Students will have to write this code.
-    // This function is the recvs responses for an open loop client.
-    unimplemented!()
+    let mut receiver = ServerWorkPacketConn::new(ChunkedTcpStream::new(recv_stream));
+    let mut latencies: Vec<LatencyRecord> = Vec::new();
+
+    loop {
+        match receiver.recv_work_msg() {
+            Ok(msg) => {
+                if let Some(lat) = msg.calculate_latency(get_current_time_micros()) {
+                    latencies.push(lat);
+                }
+            }
+            Err(_e) => {
+                if receiver_complete.load(Ordering::SeqCst) {
+                    break;
+                }
+                continue;
+            }
+        }
+    }
+
+    latencies
 }
 
 fn init_client(
@@ -106,9 +130,19 @@ pub fn run(
         request_latencies.push(thread_latencies);
     }
 
-    // TODO: Output your request latencies to make your graph. You can calculate
-    // your graph data here, or output raw data and calculate them externally.
-    // You SHOULD write this output to outdir.
+    let path = outdir.join("open_loop_latencies.csv");
+    let mut w = Writer::from_path(&path).unwrap();
+    w.write_record(&["idx", "send_us", "recv_us", "server_proc_us", "latency_us"]).unwrap();
 
-    unimplemented!()
+    for thread_recs in request_latencies {
+        for (i, rec) in thread_recs.iter().enumerate() {
+            w.write_record(&[
+                i.to_string(),
+                rec.send_timestamp.to_string(), 
+                rec.recv_timestamp.to_string(), 
+                rec.server_processing_time.to_string(), 
+                rec.latency.to_string()]).unwrap();
+        }
+    }
+    w.flush().unwrap();
 }
