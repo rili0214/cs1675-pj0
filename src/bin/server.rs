@@ -36,10 +36,10 @@ struct Args {
     #[arg(short, long)]
     kind: ServerKind,
 
-    #[arg(short, long)]
+    #[arg(long)]
     ring_sz: Option<usize>,
 
-    #[arg(short, long)]
+    #[arg(long)]
     runtime_secs: u64,
 }
 
