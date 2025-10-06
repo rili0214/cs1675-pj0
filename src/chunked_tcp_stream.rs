@@ -1,6 +1,8 @@
+use libc::{self, iovec};
 use std::{
     io::{Read, Write},
     net::TcpStream,
+    os::fd::RawFd,
 };
 
 pub const MSG_SIZE_BYTES: usize = 128;
@@ -24,4 +26,18 @@ impl ChunkedTcpStream {
     pub fn new(tcp: TcpStream) -> Self {
         Self(tcp)
     }
+}
+
+pub unsafe fn writev(raw_fd: RawFd, iovecs: &mut [iovec], send_idx: i32) -> isize {
+    for v in iovecs.iter() {
+        assert!(v.iov_len as usize <= MSG_SIZE_BYTES);
+    }
+    libc::writev(raw_fd, iovecs.as_mut_ptr(), send_idx)
+}
+
+pub unsafe fn readv(raw_fd: RawFd, iovecs: &mut [iovec], send_idx: i32) -> isize {
+    for v in iovecs.iter() {
+        assert!(v.iov_len as usize <= MSG_SIZE_BYTES);
+    }
+    libc::readv(raw_fd, iovecs.as_mut_ptr(), send_idx)
 }
