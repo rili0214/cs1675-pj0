@@ -1,3 +1,4 @@
+//! open_loop_client.rs
 use crate::{
     app::Work,
     chunked_tcp_stream::ChunkedTcpStream,
@@ -20,6 +21,7 @@ use std::{
 
 use minstant::Instant;
 use csv::Writer;
+use rand_distr::Distribution;
 
 fn client_open_loop(
     send_stream: TcpStream,
@@ -29,24 +31,25 @@ fn client_open_loop(
     packets_sent: Arc<AtomicU64>,
     work: Work,
 ) {
+    let mut rng = rand::thread_rng();
+    let lambda = 1. / thread_delay.as_secs_f64(); 
+    let exp = rand_distr::Exp::new(lambda).unwrap(); 
     let mut sender = ClientWorkPacketConn::new(ChunkedTcpStream::new(send_stream));
     let mut id: u64 = 0;
 
-    let mut next = thread_start_time;
     while thread_start_time.elapsed() < runtime {
-        let now = Instant::now();
-        if next > now {
-            thread::sleep(next - now);
-        }
-   
+        let delay_secs = exp.sample(&mut rng);
+        let excess_duration = Duration::from_secs_f64(delay_secs);
+
+        thread::sleep(excess_duration);
+
         let work_packet = ClientWorkPacket::new(id, work);
-        sender.send_work_msg(work_packet).unwrap();
+        if sender.send_work_msg(work_packet).is_err() {
+            break;
+        }
 
         packets_sent.fetch_add(1, Ordering::SeqCst);
         id += 1;
-        while next <= Instant::now() {
-            next += thread_delay;
-        }
     }
 }
 
@@ -107,6 +110,8 @@ fn init_client(
 
     recv_handle
 }
+
+
 
 pub fn run(
     server_addr: SocketAddrV4,
